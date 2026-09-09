@@ -3,6 +3,7 @@ package io.github.some_example_name;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.ScreenAdapter;
+import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
@@ -11,6 +12,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.utils.ScreenUtils;
+
 
 public class GameScreen extends ScreenAdapter {
    private final MainGame game;
@@ -45,6 +47,8 @@ public class GameScreen extends ScreenAdapter {
    private boolean enemybackward = false;
    private boolean gamefinished = false;
    private float enemyFireCooldown = 0f;
+   private Sound moveSound;
+   private float moveSoundCooldown = 0f;
 
    public GameScreen(MainGame game) {
        this.game = game;
@@ -65,6 +69,7 @@ public class GameScreen extends ScreenAdapter {
        cam.position.set(cam.viewportWidth / 2f, cam.viewportHeight / 2f, 0);
        cam.update();
        font = new BitmapFont();
+       moveSound = Gdx.audio.newSound(Gdx.files.internal("walk audio.ogg"));
        score = 0;
        scoreAccumulator = 0f;
        prevPx = p.Px;
@@ -115,6 +120,15 @@ public class GameScreen extends ScreenAdapter {
        }
        if (Gdx.input.isKeyPressed(Input.Keys.A)) {
            velocityX -= acceleration;
+       }
+
+       if (Gdx.input.isKeyPressed(Input.Keys.D) || Gdx.input.isKeyPressed(Input.Keys.A)) {
+           moveSoundCooldown -= delta;
+
+           if (Math.abs(velocityX) > 0.1f && moveSoundCooldown <= 0f) {
+               moveSound.play(0.25f);
+               moveSoundCooldown = 0.18f;
+           }
        }
 
        if (velocityX > maxSpeed) velocityX = maxSpeed;
@@ -290,6 +304,7 @@ public class GameScreen extends ScreenAdapter {
        image.dispose();
        sr.dispose();
        if (font != null) font.dispose();
+       if (moveSound != null) moveSound.dispose();
    }
 
    // Saves the score to a local JSON file called score.json

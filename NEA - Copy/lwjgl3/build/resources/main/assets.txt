@@ -1,1 +1,3 @@
+desktop.ini
 libgdx.png
+walk audio.ogg
