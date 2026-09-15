@@ -49,6 +49,34 @@ public class Enemy {
         }
     }
 
+    public static class FloorMark {
+        public float x, y, w, h;
+        public Color color;
+        public float life; // remaining life in seconds
+
+        public FloorMark(float x, float y, float w, float h, Color color) {
+            this.x = x; this.y = y; this.w = w; this.h = h; this.color = color;
+            this.life = 30f; // default lifetime
+        }
+
+        public void update(float delta) {
+            life -= delta;
+        }
+
+        public boolean isExpired() {
+            return life <= 0f;
+        }
+
+        public void draw(ShapeRenderer sr) {
+            float alpha = Math.max(0f, life / 30f);
+            Color c = new Color(color.r, color.g, color.b, alpha);
+            sr.setColor(c);
+            sr.rect(x, y, w, h);
+        }
+    }
+
+    public java.util.List<FloorMark> floorMarks = new ArrayList<>();
+
     public static class Projectile {
         public float x;
         public float y;
@@ -76,6 +104,8 @@ public class Enemy {
 
         public void update() {
             if (!active) return;
+            // apply gravity (uses GameScreen's GRAVITY constant)
+            vy += GameScreen.GRAVITY;
             x += vx;
             y += vy;
             travelledDistance += (float) Math.hypot(vx, vy);
@@ -143,8 +173,34 @@ public class Enemy {
 
     public void draw(ShapeRenderer sr) {
         sr.rect(Ex, Ey, Ew, Eh, Ecolor, Ecolor, Ecolor, Ecolor);
+        // draw floor marks (fire residue)
+        for (int i = 0; i < floorMarks.size(); i++) {
+            floorMarks.get(i).draw(sr);
+        }
         if (projectile != null) {
             projectile.draw(sr);
+        }
+    }
+
+    public void addFloorMark(float x, float y, float w, float h) {
+        // small red mark on the floor where fire landed
+        float markW = Math.max(6f, w * 1.2f);
+        float markH = Math.max(3f, h * 0.5f);
+        FloorMark fm = new FloorMark(x - (markW - w) / 2f, y, markW, markH, new Color(0.8f, 0.1f, 0.05f, 1f));
+        floorMarks.add(fm);
+        // ensure we keep at most 3 marks
+        while (floorMarks.size() > 3) {
+            floorMarks.remove(0);
+        }
+    }
+
+    private void updateFloorMarks(float delta) {
+        for (int i = floorMarks.size() - 1; i >= 0; i--) {
+            FloorMark fm = floorMarks.get(i);
+            fm.update(delta);
+            if (fm.isExpired()) {
+                floorMarks.remove(i);
+            }
         }
     }
 
@@ -187,14 +243,14 @@ public class Enemy {
         switch (chosen) {
             case FIRE:
                 projectile.w = 10f; projectile.h = 10f; projectile.color = new Color(1f, 0.25f, 0.1f, 1f);
-                projectile.maxDistance = 250f; // travel distance
-                projectile.vx = (dx / distance) * 10f; projectile.vy = (dy / distance) * 10f; break;
+                projectile.maxDistance = 500f; // travel distance
+                projectile.vx = (dx / distance) * 16f; projectile.vy = (dy / distance) * 16f; break;
             case ICE:
                 projectile.w = 12f; projectile.h = 12f; projectile.color = new Color(0.55f, 0.8f, 1f, 1f);
-                projectile.maxDistance = 300f; projectile.vx = (dx / distance) * 6f; projectile.vy = (dy / distance) * 6f; break;
+                projectile.maxDistance = 550f; projectile.vx = (dx / distance) * 14f; projectile.vy = (dy / distance) * 14f; break;
             case SPARK:
                 projectile.w = 8f; projectile.h = 8f; projectile.color = new Color(1f, 0.95f, 0.2f, 1f);
-                projectile.maxDistance = 200f; projectile.vx = (dx / distance) * 12f; projectile.vy = (dy / distance) * 12f; break;
+                projectile.maxDistance = 450f; projectile.vx = (dx / distance) * 18f; projectile.vy = (dy / distance) * 18f; break;
         }
 
         projectile.type = chosen;
@@ -205,10 +261,11 @@ public class Enemy {
         projectile.particles.clear();
     }
 
-    public void updateProjectile() {
+    public void updateProjectile(float delta) {
         if (projectile != null) {
             projectile.update();
         }
+        updateFloorMarks(delta);
     }
 
     public boolean projectileHitsPlayer(float playerX, float playerY, float playerW, float playerH) {

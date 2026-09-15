@@ -31,7 +31,7 @@ public class GameScreen extends ScreenAdapter {
    private float scoreAccumulator = 0f;
    private float prevPx = 0f;
    private float velocityY = 0;
-   private float gravity = -0.5f;
+   public static final float GRAVITY = -0.5f;
    private float jumpStrength = 10f;
    private boolean onGround = true;
    private boolean onPlat = true;
@@ -39,6 +39,9 @@ public class GameScreen extends ScreenAdapter {
    private final float worldWidth = 1000;
    private float worldHeight = 600;
    private float acceleration = 0.5f;
+   private float movementDisableTimer = 0f;
+   private Color originalPlayerColor = null;
+   public Color iceHitColor = new Color(0f, 0.6f, 1f, 1f);
    private float maxSpeed = 5f;
    private float friction = 0.3f;
    private float deadZoneWidth = 200;
@@ -73,6 +76,7 @@ public class GameScreen extends ScreenAdapter {
        score = 0;
        scoreAccumulator = 0f;
        prevPx = p.Px;
+       originalPlayerColor = p.Pcolor;
    }
 
    @Override
@@ -109,32 +113,84 @@ public class GameScreen extends ScreenAdapter {
            e.fireProjectile(p.Px + p.Pw / 2f, p.Py + p.Ph / 2f);
            enemyFireCooldown = 1.5f;
        }
-       e.updateProjectile();
+       e.updateProjectile(delta);
 
-       if (e.projectileHitsPlayer(p.Px, p.Py, p.Pw, p.Ph)) {
-           p.PlayerAlive = false;
-       }
-
-       if (Gdx.input.isKeyPressed(Input.Keys.D)) {
-           velocityX += acceleration;
-       }
-       if (Gdx.input.isKeyPressed(Input.Keys.A)) {
-           velocityX -= acceleration;
-       }
-
-       if (Gdx.input.isKeyPressed(Input.Keys.D) || Gdx.input.isKeyPressed(Input.Keys.A)) {
-           moveSoundCooldown -= delta;
-
-           if (Math.abs(velocityX) > 0.1f && moveSoundCooldown <= 0f) {
-               moveSound.play(0.25f);
-               moveSoundCooldown = 0.18f;
+       // decrement movement-disable timer and restore color when expired
+       if (movementDisableTimer > 0f) {
+           movementDisableTimer -= delta;
+           if (movementDisableTimer <= 0f && originalPlayerColor != null) {
+               p.Pcolor = originalPlayerColor;
            }
        }
 
-       if (velocityX > maxSpeed) velocityX = maxSpeed;
-       if (velocityX < -maxSpeed) velocityX = -maxSpeed;
+       // handle projectile collisions / ground landing / ice effect
+       Enemy.Projectile proj = e.getProjectile();
+       if (proj != null && proj.active) {
+           // projectile hits player
+           if (proj.hitsPlayer(p.Px, p.Py, p.Pw, p.Ph)) {
+               if (proj.type == Enemy.ProjectileType.ICE) {
+                   // ice: tint player and disable movement for 5 seconds
+                   if (originalPlayerColor == null) originalPlayerColor = p.Pcolor;
+                   p.Pcolor = iceHitColor;
+                   movementDisableTimer = 5f;
+                   proj.active = false;
+                   proj.particles.clear();
+               } else {
+                   // fire/spark: kill player as before
+                   p.PlayerAlive = false;
+                   proj.active = false;
+                   proj.particles.clear();
+               }
+           }
 
-       if (!Gdx.input.isKeyPressed(Input.Keys.A) && !Gdx.input.isKeyPressed(Input.Keys.D)) {
+           // ground collision
+           if (proj.y <= 0f) {
+               proj.y = 0f;
+               proj.active = false;
+               if (proj.type == Enemy.ProjectileType.FIRE) {
+                   e.addFloorMark(proj.x, proj.y, proj.w, proj.h);
+               }
+           } else if (proj.y <= pl.Ply + pl.Plw && proj.y >= pl.Ply && (proj.x + proj.w > pl.Plx) && (proj.x < pl.Plx + pl.Plh)) {
+               // landed on platform
+               proj.y = pl.Ply + pl.Plw;
+               proj.active = false;
+               if (proj.type == Enemy.ProjectileType.FIRE) {
+                   e.addFloorMark(proj.x, proj.y, proj.w, proj.h);
+               }
+           }
+       }
+
+       if (movementDisableTimer <= 0f) {
+           if (Gdx.input.isKeyPressed(Input.Keys.D)) {
+               velocityX += acceleration;
+           }
+           if (Gdx.input.isKeyPressed(Input.Keys.A)) {
+               velocityX -= acceleration;
+           }
+
+           if (Gdx.input.isKeyPressed(Input.Keys.D) || Gdx.input.isKeyPressed(Input.Keys.A)) {
+               moveSoundCooldown -= delta;
+
+               if (Math.abs(velocityX) > 0.1f && moveSoundCooldown <= 0f) {
+                   moveSound.play(0.25f);
+                   moveSoundCooldown = 0.18f;
+               }
+           }
+
+           if (velocityX > maxSpeed) velocityX = maxSpeed;
+           if (velocityX < -maxSpeed) velocityX = -maxSpeed;
+
+           if (!Gdx.input.isKeyPressed(Input.Keys.A) && !Gdx.input.isKeyPressed(Input.Keys.D)) {
+               if (velocityX > 0) {
+                   velocityX -= friction;
+                   if (velocityX < 0) velocityX = 0;
+               } else if (velocityX < 0) {
+                   velocityX += friction;
+                   if (velocityX > 0) velocityX = 0;
+               }
+           }
+       } else {
+           // while disabled, gradually damp horizontal movement
            if (velocityX > 0) {
                velocityX -= friction;
                if (velocityX < 0) velocityX = 0;
@@ -196,23 +252,25 @@ public class GameScreen extends ScreenAdapter {
            p.Px = w1.Wlx + w1.Wlw;
        }
 
-       if (Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
-           if (onGround || onPlat) {
-               velocityY = jumpStrength;
-               onGround = false;
-               onPlat = false;
-           } else if (touchingLeftWall || touchingRightWallright) {
-               velocityY = jumpStrength;
-               velocityX = 5f;
-               onGround = false;
-           } else if (touchingRightWall || touchingLeftWallleft) {
-               velocityY = jumpStrength;
-               velocityX = -5f;
-               onGround = false;
+       if (movementDisableTimer <= 0f) {
+           if (Gdx.input.isKeyPressed(Input.Keys.W) || Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
+               if (onGround || onPlat) {
+                   velocityY = jumpStrength;
+                   onGround = false;
+                   onPlat = false;
+               } else if (touchingLeftWall || touchingRightWallright) {
+                   velocityY = jumpStrength;
+                   velocityX = 5f;
+                   onGround = false;
+               } else if (touchingRightWall || touchingLeftWallleft) {
+                   velocityY = jumpStrength;
+                   velocityX = -5f;
+                   onGround = false;
+               }
            }
        }
 
-       velocityY += gravity;
+       velocityY += GRAVITY;
        p.Py += velocityY;
 
        if (Gdx.input.isKeyPressed(Input.Keys.S) && (p.Pw > 20)) {
